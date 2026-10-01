@@ -15,28 +15,24 @@ WALL_COLOR = (40, 40, 60)
 EXIT_COLOR = (80, 200, 80)
 PATH_COLOR = (255, 220, 80)
 
-COLS, ROWS = 15, 13
+# Task 4: Difficulty settings
+DIFFICULTIES = {
+    "Easy": (10, 8),
+    "Medium": (15, 13),
+    "Hard": (20, 18),
+}
 
-WIDTH = COLS * CELL
-HEIGHT = ROWS * CELL + 60
-
-# Task 2: Fog of War
 FOG_RADIUS = 3
-
-# Task 3: Leaderboard
 MAX_LEADERBOARD_ENTRIES = 5
+HUD_HEIGHT = 60
 
 
 class GameEngine:
+
     def __init__(self):
         pygame.init()
 
-        self.screen = pygame.display.set_mode(
-            (WIDTH, HEIGHT)
-        )
-
-        pygame.display.set_caption("Maze Runner")
-
+        self.screen = None
         self.clock = pygame.time.Clock()
 
         self.font = pygame.font.SysFont(
@@ -50,7 +46,6 @@ class GameEngine:
             bold=True
         )
 
-        # Task 3: Load saved leaderboard
         self.leaderboard_file = os.path.join(
             os.path.dirname(os.path.dirname(__file__)),
             "leaderboard.json"
@@ -58,20 +53,36 @@ class GameEngine:
 
         self.leaderboard = self.load_leaderboard()
 
-        self.reset()
+        # Task 4
+        self.difficulty = None
+        self.cols = None
+        self.rows = None
+        self.width = None
+        self.height = None
+
+        self.walls = None
+        self.player = None
+        self.exit_rect = None
+
+        self.start_time = None
+        self.elapsed = 0
+        self.won = False
+
+        # Task 1
+        self.show_path = False
+        self.solution_path = []
+
+        # Task 3
+        self.score_saved = False
+
+        # Start with difficulty selection
+        self.show_difficulty_screen = True
 
     # ==========================================================
-    # TASK 3: LEADERBOARD - LOAD
+    # TASK 3: LOAD LEADERBOARD
     # ==========================================================
 
     def load_leaderboard(self):
-        """
-        Load the leaderboard from leaderboard.json.
-
-        If the file doesn't exist or contains invalid data,
-        start with an empty leaderboard.
-        """
-
         try:
             with open(
                 self.leaderboard_file,
@@ -83,13 +94,11 @@ class GameEngine:
             if not isinstance(data, list):
                 return []
 
-            # Keep only valid numeric times
             valid_times = []
 
             for value in data:
-                if isinstance(value, (int, float)):
-                    if value >= 0:
-                        valid_times.append(float(value))
+                if isinstance(value, (int, float)) and value >= 0:
+                    valid_times.append(float(value))
 
             valid_times.sort()
 
@@ -105,12 +114,10 @@ class GameEngine:
             return []
 
     # ==========================================================
-    # TASK 3: LEADERBOARD - SAVE
+    # TASK 3: SAVE LEADERBOARD
     # ==========================================================
 
     def save_leaderboard(self):
-        """Save the current leaderboard to leaderboard.json."""
-
         try:
             with open(
                 self.leaderboard_file,
@@ -122,9 +129,7 @@ class GameEngine:
                     file,
                     indent=4
                 )
-
         except OSError:
-            # The game should continue even if saving fails.
             pass
 
     # ==========================================================
@@ -132,12 +137,6 @@ class GameEngine:
     # ==========================================================
 
     def add_completion_time(self):
-        """
-        Add the current completion time to the leaderboard.
-
-        Only the best five times are retained.
-        """
-
         self.leaderboard.append(float(self.elapsed))
 
         self.leaderboard.sort()
@@ -149,20 +148,169 @@ class GameEngine:
         self.save_leaderboard()
 
     # ==========================================================
-    # RESET
+    # TASK 4: SET DIFFICULTY
+    # ==========================================================
+
+    def set_difficulty(self, difficulty):
+        self.difficulty = difficulty
+
+        self.cols, self.rows = DIFFICULTIES[difficulty]
+
+        self.width = self.cols * CELL
+        self.height = self.rows * CELL + HUD_HEIGHT
+
+        self.screen = pygame.display.set_mode(
+            (self.width, self.height)
+        )
+
+        pygame.display.set_caption(
+            f"Maze Runner - {difficulty}"
+        )
+
+        self.show_difficulty_screen = False
+
+        self.reset()
+
+    # ==========================================================
+    # TASK 4: DIFFICULTY SCREEN
+    # ==========================================================
+
+    def draw_difficulty_screen(self):
+        self.screen.fill(BG)
+
+        title = self.big_font.render(
+            "MAZE RUNNER",
+            True,
+            (30, 30, 50)
+        )
+
+        subtitle = self.font.render(
+            "Select Difficulty",
+            True,
+            (50, 50, 70)
+        )
+
+        self.screen.blit(
+            title,
+            (
+                400 - title.get_width() // 2,
+                80
+            )
+        )
+
+        self.screen.blit(
+            subtitle,
+            (
+                400 - subtitle.get_width() // 2,
+                140
+            )
+        )
+
+        button_width = 300
+        button_height = 60
+        button_x = 250
+
+        difficulties = [
+            ("Easy", 10, 8),
+            ("Medium", 15, 13),
+            ("Hard", 20, 18),
+        ]
+
+        for index, (name, cols, rows) in enumerate(difficulties):
+
+            y = 220 + index * 90
+
+            button_rect = pygame.Rect(
+                button_x,
+                y,
+                button_width,
+                button_height
+            )
+
+            pygame.draw.rect(
+                self.screen,
+                (60, 70, 100),
+                button_rect,
+                border_radius=8
+            )
+
+            label = self.font.render(
+                f"{name} ({cols}x{rows})",
+                True,
+                (255, 255, 255)
+            )
+
+            self.screen.blit(
+                label,
+                (
+                    button_rect.centerx
+                    - label.get_width() // 2,
+                    button_rect.centery
+                    - label.get_height() // 2
+                )
+            )
+
+        pygame.display.flip()
+
+    # ==========================================================
+    # TASK 4: DIFFICULTY SCREEN EVENTS
+    # ==========================================================
+
+    def handle_difficulty_events(self):
+
+        for event in pygame.event.get():
+
+            if event.type == pygame.QUIT:
+                return False
+
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+
+                    button_width = 300
+                    button_height = 60
+                    button_x = 250
+
+                    difficulties = [
+                        ("Easy", 10, 8),
+                        ("Medium", 15, 13),
+                        ("Hard", 20, 18),
+                    ]
+
+                    for index, (name, cols, rows) in enumerate(
+                        difficulties
+                    ):
+
+                        y = 220 + index * 90
+
+                        button_rect = pygame.Rect(
+                            button_x,
+                            y,
+                            button_width,
+                            button_height
+                        )
+
+                        if button_rect.collidepoint(event.pos):
+                            self.set_difficulty(name)
+                            break
+
+        return True
+
+    # ==========================================================
+    # RESET CURRENT MAZE
     # ==========================================================
 
     def reset(self):
+
         self.walls = generate_maze(
-            COLS,
-            ROWS
+            self.cols,
+            self.rows
         )
 
         self.player = Player(0, 0)
 
         self.exit_rect = pygame.Rect(
-            (COLS - 1) * CELL + 5,
-            (ROWS - 1) * CELL + 5,
+            (self.cols - 1) * CELL + 5,
+            (self.rows - 1) * CELL + 5,
             CELL - 10,
             CELL - 10
         )
@@ -173,23 +321,21 @@ class GameEngine:
 
         self.won = False
 
-        # Task 1: Shortest path
+        # Task 1
         self.show_path = False
         self.solution_path = []
 
-        # Task 3: Prevent recording the same
-        # completion time more than once.
+        # Task 3
         self.score_saved = False
 
     # ==========================================================
-    # TASK 1: SHORTEST PATH / BFS
+    # TASK 1: BFS SHORTEST PATH
     # ==========================================================
 
     def find_shortest_path(self):
-        """Find the shortest valid path from start to exit using BFS."""
 
         start = (0, 0)
-        goal = (ROWS - 1, COLS - 1)
+        goal = (self.rows - 1, self.cols - 1)
 
         queue = deque([start])
 
@@ -206,6 +352,7 @@ class GameEngine:
         ]
 
         while queue:
+
             r, c = queue.popleft()
 
             if (r, c) == goal:
@@ -217,16 +364,14 @@ class GameEngine:
                 nc = c + dc
 
                 if not (
-                    0 <= nr < ROWS
-                    and 0 <= nc < COLS
+                    0 <= nr < self.rows
+                    and 0 <= nc < self.cols
                 ):
                     continue
 
-                # Wall in current cell
                 if self.walls[r][c][wall_dir]:
                     continue
 
-                # Wall in neighboring cell
                 if self.walls[nr][nc][opposite_wall]:
                     continue
 
@@ -264,11 +409,11 @@ class GameEngine:
 
             if event.type == pygame.KEYDOWN:
 
-                # R = New Maze
+                # R = new maze at current difficulty
                 if event.key == pygame.K_r:
                     self.reset()
 
-                # H = Shortest Path Hint
+                # H = shortest path
                 elif event.key == pygame.K_h:
 
                     self.show_path = not self.show_path
@@ -296,23 +441,20 @@ class GameEngine:
         self.player.move(
             keys,
             self.walls,
-            ROWS,
-            COLS
+            self.rows,
+            self.cols
         )
 
         self.elapsed = (
             time.time() - self.start_time
         )
 
-        # Player reached exit
         if self.player.rect.colliderect(
             self.exit_rect
         ):
 
             self.won = True
 
-            # Task 3:
-            # Save completion time only once.
             if not self.score_saved:
 
                 self.add_completion_time()
@@ -327,16 +469,15 @@ class GameEngine:
 
         wall_w = 3
 
-        for r in range(ROWS):
+        for r in range(self.rows):
 
-            for c in range(COLS):
+            for c in range(self.cols):
 
                 x = c * CELL
                 y = r * CELL
 
                 w = self.walls[r][c]
 
-                # North
                 if w[0]:
                     pygame.draw.line(
                         self.screen,
@@ -346,7 +487,6 @@ class GameEngine:
                         wall_w
                     )
 
-                # South
                 if w[1]:
                     pygame.draw.line(
                         self.screen,
@@ -356,7 +496,6 @@ class GameEngine:
                         wall_w
                     )
 
-                # East
                 if w[2]:
                     pygame.draw.line(
                         self.screen,
@@ -366,7 +505,6 @@ class GameEngine:
                         wall_w
                     )
 
-                # West
                 if w[3]:
                     pygame.draw.line(
                         self.screen,
@@ -377,7 +515,7 @@ class GameEngine:
                     )
 
     # ==========================================================
-    # TASK 1: DRAW SHORTEST PATH
+    # TASK 1: DRAW PATH
     # ==========================================================
 
     def draw_solution_path(self):
@@ -407,26 +545,22 @@ class GameEngine:
 
     def draw_fog(self):
 
-        maze_width = COLS * CELL
-        maze_height = ROWS * CELL
+        maze_width = self.cols * CELL
+        maze_height = self.rows * CELL
 
         fog = pygame.Surface(
             (maze_width, maze_height),
             pygame.SRCALPHA
         )
 
-        # Dark overlay
         fog.fill(
             (0, 0, 0, 220)
         )
 
-        # Player position
         player_center = self.player.rect.center
 
-        # Three-cell radius
         reveal_radius = FOG_RADIUS * CELL
 
-        # Transparent area around player
         pygame.draw.circle(
             fog,
             (0, 0, 0, 0),
@@ -440,7 +574,7 @@ class GameEngine:
         )
 
     # ==========================================================
-    # TASK 3: DRAW LEADERBOARD
+    # TASK 3: LEADERBOARD
     # ==========================================================
 
     def draw_leaderboard(self):
@@ -454,8 +588,9 @@ class GameEngine:
         self.screen.blit(
             title,
             (
-                WIDTH // 2 - title.get_width() // 2,
-                ROWS * CELL // 2 + 65
+                self.width // 2
+                - title.get_width() // 2,
+                self.rows * CELL // 2 + 65
             )
         )
 
@@ -473,29 +608,26 @@ class GameEngine:
             self.screen.blit(
                 score_text,
                 (
-                    WIDTH // 2
+                    self.width // 2
                     - score_text.get_width() // 2,
-                    ROWS * CELL // 2
+                    self.rows * CELL // 2
                     + 95
                     + (index - 1) * 25
                 )
             )
 
     # ==========================================================
-    # DRAW
+    # DRAW GAME
     # ==========================================================
 
     def draw(self):
 
         self.screen.fill(BG)
 
-        # Maze
         self.draw_maze()
 
-        # Shortest path
         self.draw_solution_path()
 
-        # Exit
         pygame.draw.rect(
             self.screen,
             EXIT_COLOR,
@@ -517,20 +649,18 @@ class GameEngine:
             )
         )
 
-        # Player
         self.player.draw(
             self.screen
         )
 
-        # Fog
         self.draw_fog()
 
         # HUD
         hud = pygame.Rect(
             0,
-            ROWS * CELL,
-            WIDTH,
-            60
+            self.rows * CELL,
+            self.width,
+            HUD_HEIGHT
         )
 
         pygame.draw.rect(
@@ -550,18 +680,18 @@ class GameEngine:
             time_surf,
             (
                 10,
-                ROWS * CELL + 18
+                self.rows * CELL + 18
             )
         )
 
-        # ======================================================
-        # WIN SCREEN
-        # ======================================================
-
+        # Win screen
         if self.won:
 
             overlay = pygame.Surface(
-                (WIDTH, ROWS * CELL),
+                (
+                    self.width,
+                    self.rows * CELL
+                ),
                 pygame.SRCALPHA
             )
 
@@ -583,13 +713,12 @@ class GameEngine:
             self.screen.blit(
                 msg,
                 (
-                    WIDTH // 2
+                    self.width // 2
                     - msg.get_width() // 2,
                     35
                 )
             )
 
-            # Task 3: Leaderboard
             self.draw_leaderboard()
 
             sub = self.font.render(
@@ -601,9 +730,9 @@ class GameEngine:
             self.screen.blit(
                 sub,
                 (
-                    WIDTH // 2
+                    self.width // 2
                     - sub.get_width() // 2,
-                    ROWS * CELL - 35
+                    self.rows * CELL - 35
                 )
             )
 
@@ -619,12 +748,28 @@ class GameEngine:
 
         while running:
 
-            running = self.handle_events()
+            if self.show_difficulty_screen:
 
-            self.update()
+                # The selection screen needs a fixed window
+                # before a difficulty has been selected.
+                if self.screen is None:
+                    self.screen = pygame.display.set_mode(
+                        (800, 520)
+                    )
 
-            self.draw()
+                running = self.handle_difficulty_events()
 
-            self.clock.tick(FPS)
+                if running and self.show_difficulty_screen:
+                    self.draw_difficulty_screen()
+
+            else:
+
+                running = self.handle_events()
+
+                self.update()
+
+                self.draw()
+
+                self.clock.tick(FPS)
 
         pygame.quit()
